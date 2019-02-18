@@ -78,25 +78,33 @@ static void move_candidate_irqs(struct irq_info *info, void *data)
 	struct load_balance_info *lb_info = data;
 
 	/* Don't rebalance irqs that don't want it */
-	if (info->level == BALANCE_NONE)
+	if (info->level == BALANCE_NONE) {
+		log(TO_CONSOLE, LOG_INFO, "Skipping irq that is BALANCE_NONE\n");
 		return;
+	}
 
 	/* Don't move cpus that only have one irq, regardless of load */
-	if (g_list_length(info->assigned_obj->interrupts) <= 1)
+	if (g_list_length(info->assigned_obj->interrupts) <= 1) {
+		log(TO_CONSOLE, LOG_INFO, "Skipping irq that is a singleton on its cpu\n");
 		return;
+	}
 
 	/* IRQs with a load of 1 have most likely not had any interrupts and
 	 * aren't worth migrating
 	 */
-	if (info->load <= 1)
+	if (info->load <= 1) {
+		log(TO_CONSOLE, LOG_INFO, "irq load is less than 1, skipping\n");
 		return;
+	}
 
 	/* If we can migrate an irq without swapping the imbalance do it. */
 	if ((lb_info->adjustment_load - info->load) > (lb_info->min_load + info->load)) {
 		lb_info->adjustment_load -= info->load;
 		lb_info->min_load += info->load;
-	} else
+	} else {
+		log(TO_CONSOLE, LOG_INFO, "Skipping irq because movement would just reverse imbalance\n");
 		return;
+	}
 
 	log(TO_CONSOLE, LOG_INFO, "Selecting irq %d for rebalancing\n", info->irq);
 
@@ -111,7 +119,7 @@ static void migrate_overloaded_irqs(struct topo_obj *obj, void *data)
 
 	if (obj->powersave_mode)
 		info->num_powersave++;
-
+	log(TO_CONSOLE, LOG_INFO, "Object load is %lu\n", obj->load);
 	if ((obj->load + info->std_deviation) <= info->avg_load) {
 		info->num_under++;
 		if (power_thresh != ULONG_MAX && !info->powersave)
@@ -134,6 +142,7 @@ static void migrate_overloaded_irqs(struct topo_obj *obj, void *data)
 		 * left.
 		 */
 		info->adjustment_load = obj->load;
+		log(TO_CONSOLE, LOG_INFO, "Checking candidate irqs\n");
 		for_each_irq(obj->interrupts, move_candidate_irqs, info);
 	}
 }
@@ -162,13 +171,17 @@ static void find_overloaded_objs(GList *name, struct load_balance_info *info) {
 		info->std_deviation = (long double)(info->deviations / (info->load_sources - 1));
 		info->std_deviation = sqrt(info->std_deviation);
 	}
-
+	log(TO_CONSOLE, LOG_INFO, "AVG_LOAD = %llu\n", info->avg_load);
+	log(TO_CONSOLE, LOG_INFO, "STD_DEVIATION = %LE\n", info->std_deviation);
+	log(TO_CONSOLE, LOG_INFO, "MIN_LOAD = %llu\n", info->min_load);
+	
 	for_each_object(name, migrate_overloaded_irqs, info);
 }
 
 void update_migration_status(void)
 {
 	struct load_balance_info info;
+	log(TO_CONSOLE, LOG_INFO, "Checking cpu load\n");
 	find_overloaded_objs(cpus, &info);
 	if (power_thresh != ULONG_MAX && cycle_count > 5) {
 		if (!info.num_over && (info.num_under >= power_thresh) && info.powersave) {
@@ -181,8 +194,11 @@ void update_migration_status(void)
 			for_each_object(cpus, clear_powersave_mode, NULL);
 		}
 	}
+	log(TO_CONSOLE, LOG_INFO, "Checking cache domain load\n");
 	find_overloaded_objs(cache_domains, &info);
+	log(TO_CONSOLE, LOG_INFO, "Checking package load\n");
 	find_overloaded_objs(packages, &info);
+	log(TO_CONSOLE, LOG_INFO, "Checking numa node load\n");
 	find_overloaded_objs(numa_nodes, &info);
 }
 
